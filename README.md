@@ -1,4 +1,4 @@
-# 🤖 AI Conversational Agent
+# 🤖 AI Conversational Agent RAG
 
 A simple yet powerful conversational AI agent powered by Google Gemini 2.5 Flash. Built with Streamlit for an intuitive chat interface.
 
@@ -18,12 +18,12 @@ A simple yet powerful conversational AI agent powered by Google Gemini 2.5 Flash
 
 ## 🎯 Demo
 
-[Live Demo on Streamlit Cloud](YOUR_DEPLOYED_APP_URL_HERE)
+👉 [Live Demo on Streamlit Cloud](YOUR_DEPLOYED_APP_URL_HERE) 👈
 
 ## 📸 Screenshots
 
 ![App Screenshot](IMAGE/preview.png)
-*Add your screenshot here after deployment*
+
 
 ## 🚀 Quick Start
 
@@ -49,15 +49,6 @@ A simple yet powerful conversational AI agent powered by Google Gemini 2.5 Flash
 ```bash
    streamlit run app.py
 ```
-
-
-## 🔑 Getting Your Google API Key
-
-1. Visit [Google AI Studio](https://makersuite.google.com/app/apikey)
-2. Sign in with your Google account
-3. Click "Create API Key"
-4. Copy your API key
-5. Use it in the app sidebar or set it as an environment variable
 
 ## ☁️ Deploy to Streamlit Cloud
 
@@ -121,7 +112,7 @@ generation_config={
     "temperature": 0.7,     
     "top_p": 0.95,        
     "top_k": 40,           
-    "max_output_tokens": 2048,  
+    "max_output_tokens": 5000,  
 }
 ```
 
@@ -152,14 +143,6 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - [Google Gemini](https://deepmind.google/technologies/gemini/) for the powerful AI model
 - [Streamlit](https://streamlit.io/) for the amazing web framework
 - The open-source community for inspiration
-
-## 📧 Contact
-
-Your Name - [@yourtwitter](https://twitter.com/yourtwitter) - your.email@example.com
-
-Project Link: [https://github.com/YOUR_USERNAME/AGENTIC_RAG](https://github.com/YOUR_USERNAME/AGENTIC_RAG)
-
----
 
 ⭐ **Star this repo if you find it helpful!** ⭐
 
