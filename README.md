@@ -22,7 +22,7 @@ A simple yet powerful conversational AI agent powered by Google Gemini 2.5 Flash
 
 ## 📸 Screenshots
 
-![App Screenshot](screenshot.png)
+![App Screenshot](IMAGE/preview.png)
 *Add your screenshot here after deployment*
 
 ## 🚀 Quick Start
@@ -50,10 +50,6 @@ A simple yet powerful conversational AI agent powered by Google Gemini 2.5 Flash
    streamlit run app.py
 ```
 
-4. **Open your browser**
-   - The app will automatically open at `http://localhost:8501`
-   - Enter your Google API key in the sidebar
-   - Start chatting!
 
 ## 🔑 Getting Your Google API Key
 
@@ -72,7 +68,7 @@ A simple yet powerful conversational AI agent powered by Google Gemini 2.5 Flash
 3. **Click "New app"**
 
 4. **Configure deployment:**
-   - Repository: `YOUR_USERNAME/AGENTIC_RAG`
+   - Repository: `ArpanHait/AGENTIC_RAG`
    - Branch: `main`
    - Main file path: `app.py`
 
