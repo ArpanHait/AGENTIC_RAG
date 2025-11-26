@@ -18,7 +18,7 @@ A simple yet powerful conversational AI agent powered by Google Gemini 2.5 Flash
 
 ## 🎯 Demo
 
-👉 [Live Demo on Streamlit Cloud](YOUR_DEPLOYED_APP_URL_HERE) 👈
+👉 [Live Demo on Streamlit Cloud](https://ragagentic.streamlit.app/) 👈
 
 ## 📸 Screenshots
 
