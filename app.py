@@ -27,7 +27,7 @@ class AgentConfig:
 # ============================================
 
 st.set_page_config(
-    page_title="AI Conversational Agent",
+    page_title="AI Conversational Agent RAG",
     page_icon="🤖",
     layout="centered",
     initial_sidebar_state="expanded"
@@ -321,7 +321,7 @@ with chat_container:
                 st.markdown(message["content"])
 
 # File upload section ABOVE the chat input
-col1, col2 = st.columns([0.3, 0.7])
+col1, col2 = st.columns([0.4, 0.7])
 
 with col1:
     uploaded_files_input = st.file_uploader(
