@@ -1,392 +1,356 @@
 """
-Simple Conversational AI Agent with Streamlit
-Chat with Google Gemini - Deploy anywhere!
+AI Conversational RAG Agent with Streamlit
+Chat with Google Gemini | Upload Files | Scrape Web Links
 """
 
 import streamlit as st
 import google.generativeai as genai
-from datetime import datetime
 import os
+import re
+import io
 import requests
 from bs4 import BeautifulSoup
 import pypdf
 import docx
-import io
+from PIL import Image
 
-# ============================================
+# ─────────────────────────────────────────────
 # Configuration
-# ============================================
-
+# ─────────────────────────────────────────────
 class AgentConfig:
-    """Configuration for the AI agent"""
-    GEMINI_MODEL = "gemini-2.5-flash"
-    MAX_HISTORY = 10 
+    LOCKED_MODEL    = "gemini-3.1-flash-lite-preview" # Fixed as requested
+    MAX_HISTORY     = 12                              # Max conversation turns kept in context
+    MAX_WEB_CHARS   = 8000                            # Max chars scraped from a website
+    MAX_FILE_CHARS  = 20000                           # Max chars extracted from a document
 
-# ============================================
-# Page Configuration
-# ============================================
-
+# ─────────────────────────────────────────────
+# Page Setup
+# ─────────────────────────────────────────────
 st.set_page_config(
-    page_title="AI Conversational Agent RAG",
+    page_title="AI RAG Agent",
     page_icon="🤖",
     layout="centered",
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS for better file upload UI
 st.markdown("""
 <style>
-    .upload-container {
-        display: flex;
-        gap: 10px;
+    .block-container { padding-top: 2rem; padding-bottom: 7rem; }
+    [data-testid="stFileUploadDropzone"] { 
+        padding: 5px; 
+        min-height: 40px; 
+        border: 1px dashed rgba(255,255,255,0.1);
+        border-radius: 10px;
+    }
+    .stChatMessage { border-radius: 12px; margin-bottom: 0.5rem; }
+    
+    /* Sticky Bottom Container */
+    .stChatInputContainer {
+        padding-bottom: 20px;
+        background: transparent !important;
+    }
+    
+    .upload-chip {
+        display: inline-flex;
         align-items: center;
-        margin-bottom: 10px;
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 16px;
+        padding: 4px 12px;
+        margin-right: 8px;
+        margin-bottom: 8px;
+        font-size: 0.8rem;
     }
-    .stFileUploader {
-        max-width: 150px;
-    }
-    [data-testid="stFileUploadDropzone"] {
-        padding: 10px;
-        min-height: 50px;
+    
+    /* Hide default file uploader text for a cleaner look */
+    .stFileUploader section div div { font-size: 0.7rem; }
+    
+    /* Mobile Responsiveness */
+    @media (max-width: 768px) {
+        .block-container { padding-top: 1rem; padding-bottom: 5.5rem; padding-left: 0.8rem; padding-right: 0.8rem; }
+        .stChatMessage { font-size: 0.95rem; padding: 10px; }
+        h1 { font-size: 1.8rem !important; }
+        .upload-chip { font-size: 0.75rem; padding: 4px 8px; margin-bottom: 4px; }
+        [data-testid="stFileUploadDropzone"] { min-height: 35px; }
     }
 </style>
 """, unsafe_allow_html=True)
 
-# ============================================
-# Initialize Session State
-# ============================================
+# ─────────────────────────────────────────────
+# Session State Defaults
+# ─────────────────────────────────────────────
+defaults = {
+    "chat_history":   [],    # list of {"role": "user"|"assistant", "content": str}
+    "model_instance": None,
+    "last_api_key":   "",
+    "last_model":     "",
+    "temp_files":     [],
+    "persistent_context": "",
+    "persistent_images": [],
+}
+for k, v in defaults.items():
+    if k not in st.session_state:
+        st.session_state[k] = v
 
-if 'chat_history' not in st.session_state:
-    st.session_state.chat_history = []
-
-if 'agent_initialized' not in st.session_state:
-    st.session_state.agent_initialized = False
-
-if 'model' not in st.session_state:
-    st.session_state.model = None
-
-if 'uploaded_files' not in st.session_state:
-    st.session_state.uploaded_files = []
-
-if 'current_context' not in st.session_state:
-    st.session_state.current_context = ""
-
-if 'temp_files' not in st.session_state:
-    st.session_state.temp_files = []
-
-# ============================================
-# File Processing Functions
-# ============================================
-
-def extract_text_from_pdf(file) -> str:
-    """Extract text from PDF file"""
+# ─────────────────────────────────────────────
+# Cached Utility Functions (run once per input)
+# ─────────────────────────────────────────────
+@st.cache_data(show_spinner=False)
+def extract_text_from_file(file_name: str, file_bytes: bytes) -> str:
+    """Extract text from PDF, DOCX, or TXT — cached per unique file."""
+    ext = file_name.rsplit(".", 1)[-1].lower()
     try:
-        pdf_reader = pypdf.PdfReader(file)
-        text = ""
-        for page in pdf_reader.pages:
-            text += page.extract_text() + "\n"
-        return text
+        if ext == "pdf":
+            reader = pypdf.PdfReader(io.BytesIO(file_bytes))
+            text = "\n".join(p.extract_text() or "" for p in reader.pages)
+        elif ext == "docx":
+            doc = docx.Document(io.BytesIO(file_bytes))
+            text = "\n".join(p.text for p in doc.paragraphs)
+        elif ext == "txt":
+            text = file_bytes.decode("utf-8", errors="ignore")
+        else:
+            return f"⚠️ Unsupported format: {ext}"
     except Exception as e:
-        return f"Error reading PDF: {str(e)}"
+        return f"Error reading {file_name}: {e}"
+    return text.strip()[:AgentConfig.MAX_FILE_CHARS]
 
-def extract_text_from_docx(file) -> str:
-    """Extract text from DOCX file"""
-    try:
-        doc = docx.Document(file)
-        return "\n".join([paragraph.text for paragraph in doc.paragraphs])
-    except Exception as e:
-        return f"Error reading DOCX: {str(e)}"
-
-def extract_text_from_txt(file) -> str:
-    """Extract text from TXT file"""
-    try:
-        return file.read().decode('utf-8')
-    except Exception as e:
-        return f"Error reading TXT: {str(e)}"
-
-def process_uploaded_file(uploaded_file):
-    """Process uploaded file and extract text"""
-    file_type = uploaded_file.name.split('.')[-1].lower()
-    
-    if file_type == 'pdf':
-        return extract_text_from_pdf(uploaded_file)
-    elif file_type == 'docx':
-        return extract_text_from_docx(uploaded_file)
-    elif file_type == 'txt':
-        return extract_text_from_txt(uploaded_file)
-    else:
-        return "Unsupported file format. Please upload PDF, DOCX, or TXT files."
-
+@st.cache_data(show_spinner=False)
 def scrape_website(url: str) -> str:
-    """Scrape text content from a website"""
+    """Scrape and clean a webpage — cached per URL."""
     try:
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-        }
-        response = requests.get(url, headers=headers, timeout=10)
-        response.raise_for_status()
-        
-        soup = BeautifulSoup(response.content, 'html.parser')
-        
-        # Remove script and style elements
-        for script in soup(["script", "style"]):
-            script.decompose()
-        
-        # Get text
-        text = soup.get_text()
-        
-        # Clean up text
-        lines = (line.strip() for line in text.splitlines())
-        chunks = (phrase.strip() for line in lines for phrase in line.split("  "))
-        text = '\n'.join(chunk for chunk in chunks if chunk)
-        
-        # Limit to first 5000 characters
-        return text[:5000] if len(text) > 5000 else text
-        
+        headers = {"User-Agent": "Mozilla/5.0"}
+        resp = requests.get(url, headers=headers, timeout=10)
+        resp.raise_for_status()
+        soup = BeautifulSoup(resp.content, "html.parser")
+        for tag in soup(["script", "style", "nav", "footer", "header"]):
+            tag.decompose()
+        text = re.sub(r"\s+", " ", soup.get_text(separator=" ")).strip()
+        return text[:AgentConfig.MAX_WEB_CHARS]
     except Exception as e:
-        return f"Error scraping website: {str(e)}"
+        return f"Error scraping {url}: {e}"
 
-def is_url(text: str) -> bool:
-    """Check if text is a URL"""
-    return text.startswith(('http://', 'https://', 'www.'))
+def find_urls(text: str) -> list[str]:
+    """Find all http(s) URLs embedded anywhere in a string."""
+    return re.findall(r"https?://[^\s\"'>]+", text)
 
-# ============================================
-# Sidebar - API Key Configuration
-# ============================================
+# ─────────────────────────────────────────────
+# Model Initialization (smart — only when key/model changes)
+# ─────────────────────────────────────────────
+def get_model(api_key: str, model_name: str):
+    """Return cached model instance; reinitialize only if key or model changed."""
+    if (
+        st.session_state.model_instance is None
+        or st.session_state.last_api_key   != api_key
+        or st.session_state.last_model     != model_name
+    ):
+        genai.configure(api_key=api_key)
+        st.session_state.model_instance = genai.GenerativeModel(
+            model_name=model_name,
+            system_instruction=(
+                "You are a smart, concise, and helpful AI assistant. "
+                "Use markdown formatting, bullet points, and code blocks when appropriate. "
+                "Be direct — avoid unnecessary filler phrases."
+            ),
+            generation_config={
+                "temperature": 0.7,
+                "top_p":       0.95,
+                "max_output_tokens": 8192,
+            },
+        )
+        st.session_state.last_api_key = api_key
+        st.session_state.last_model   = model_name
+    return st.session_state.model_instance
 
+# ─────────────────────────────────────────────
+# Sidebar
+# ─────────────────────────────────────────────
 with st.sidebar:
-    st.title("⚙️ Other Features:")
-    st.markdown("---")
-    
-    # Get API key from environment variable or user input
-    api_key = os.getenv('GOOGLE_API_KEY')
-    
+    st.title("⚙️ Settings")
+    st.divider()
+
+    api_key = os.getenv("GOOGLE_API_KEY", "")
     if not api_key:
         api_key = st.text_input(
-            "🔑 Enter Google API Key",
+            "🔑 Google API Key",
             type="password",
-            help="Get your API key from https://makersuite.google.com/app/apikey"
+            help="Get a free key at https://aistudio.google.com/app/apikey",
         )
     else:
         st.success("✅ API Key loaded from environment")
-    
-    st.markdown("---")
-    
-    # Model information
-    st.subheader("🤖 Model Info")
-    st.info(f"**Model:** {AgentConfig.GEMINI_MODEL}")
-    
-    st.markdown("---")
-    
-    # Clear conversation button
-    if st.button("🗑️ Clear Conversation ⌀", use_container_width=True):
+
+    st.info(f"🤖 **Model:** {AgentConfig.LOCKED_MODEL}")
+
+    st.divider()
+    if st.button("🗑️ Clear Chat History", use_container_width=True):
         st.session_state.chat_history = []
-        st.session_state.current_context = ""
-        st.session_state.uploaded_files = []
-        st.session_state.temp_files = []
+        st.session_state.persistent_context = ""
+        st.session_state.persistent_images = []
         st.rerun()
-    
-    st.markdown("---")
-    
-    # Instructions
-    st.subheader("📖 Instructions")
+
+    st.divider()
+
+    st.divider()
+    st.subheader("📖 How to Use")
     st.markdown("""
-    **💬 Chat:**
-    - Type your message normally
-    
-    **📁 Upload Files:**
-    - Click 📎 button next to message box
-    - Upload PDF, DOCX, or TXT files
-    
-    **🔗 Paste Links:**
-    - Paste any website URL in chat
-    - Ask questions about the page
-    
-    **🗑️ Clear:**
-    - Click 'Clear Conversation' to reset
-    """)
-    
-    st.markdown("---")
-    st.caption("💡Visit My Profile: [Portfolio](https://your-portfolio.com)")
+- **Chat** — type naturally
+- **Documents** — upload files above
+- **Web links** — paste any URL in chat and the agent will scrape it
+- **Clear** — reset conversation above
+""")
+    st.caption("Built with Streamlit & Gemini API")
 
-# ============================================
-# Initialize Agent
-# ============================================
-
-def initialize_agent(api_key):
-    """Initialize the Gemini model"""
-    try:
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel(
-            AgentConfig.GEMINI_MODEL,
-            generation_config={
-                "temperature": 0.7,
-                "top_p": 0.95,
-                "top_k": 40,
-                "max_output_tokens": 5000,
-            }
-        )
-        st.session_state.model = model
-        st.session_state.agent_initialized = True
-        return True
-    except Exception as e:
-        st.error(f"❌ Error initializing agent: {str(e)}")
-        return False
-
-# ============================================
-# Chat Functions
-# ============================================
-
-def get_context() -> str:
-    """Build conversation context from history"""
-    if not st.session_state.chat_history:
-        return ""
-    
-    context = "Previous conversation:\n"
-    for msg in st.session_state.chat_history[-10:]:  # Last 5 exchanges
-        context += f"{msg['role']}: {msg['content']}\n"
-    return context
-
-def get_agent_response(user_message: str, additional_context: str = "") -> str:
-    """Get response from the agent"""
-    try:
-        # Build prompt with context
-        context = get_context()
-        
-        # Add additional context from files or websites
-        if additional_context:
-            context += f"\n\nAdditional Context:\n{additional_context}\n"
-        
-        if context:
-            prompt = f"{context}\nUser: {user_message}\nAssistant:"
-        else:
-            prompt = user_message
-        
-        # Generate response
-        response = st.session_state.model.generate_content(prompt)
-        return response.text
-        
-    except Exception as e:
-        return f"❌ Error: {str(e)}"
-
-def add_to_history(role: str, content: str, context: str = ""):
-    """Add message to conversation history"""
-    st.session_state.chat_history.append({
-        "role": role,
-        "content": content,
-        "context": context,
-        "timestamp": datetime.now().strftime("%H:%M:%S")
-    })
-    
-    # Keep only recent history
-    if len(st.session_state.chat_history) > AgentConfig.MAX_HISTORY * 2:
-        st.session_state.chat_history = st.session_state.chat_history[-AgentConfig.MAX_HISTORY * 2:]
-
-# ============================================
-# Main App
-# ============================================
-
-# Header
+# ─────────────────────────────────────────────
+# Main Chat UI
+# ─────────────────────────────────────────────
 st.title("🤖 AI Conversational Agent")
-st.markdown("**Powered by using API** | 📁 Upload Files | 🔗 Paste Links")
-st.markdown("---")
+st.caption("Powered by Google Gemini · Upload Files · Paste Links")
+st.divider()
 
-# Check if API key is provided
 if not api_key:
-    st.warning("⚠️ Please enter your API key in the sidebar to start chatting.")
-    st.info("💡 Get your free API key from [Google AI Studio](https://makersuite.google.com/app/apikey)")
+    st.warning("⚠️ Enter your Google API Key in the sidebar to begin.")
+    st.info("💡 Get a free key at [Google AI Studio](https://aistudio.google.com/app/apikey)")
     st.stop()
 
-# Initialize agent if not already done
-if not st.session_state.agent_initialized:
-    with st.spinner("🚀 Initializing AI agent..."):
-        if initialize_agent(api_key):
-            st.success("✅ I Am ready! let's Start chatting ...")
-        else:
-            st.stop()
+# ── EMPTY STATE SUGGESTIONS ───────────────
+suggestion_clicked = None
+if len(st.session_state.chat_history) == 0:
+    st.markdown("### ✨ Welcome to your Intelligent Space")
+    st.markdown("Get started by typing a message below, or explore the capabilities directly:")
+    
+    st.write("")
+    c1, c2 = st.columns(2)
+    with c1:
+        if st.button("📄 Summarize a document", use_container_width=True, help="Upload a document below and click this."):
+            suggestion_clicked = "Please summarize the document I attached."
+        if st.button("🌐 Analyze a website", use_container_width=True):
+            suggestion_clicked = "Can you help me extract insights from a website?"
+    with c2:
+        if st.button("💻 Debug my code", use_container_width=True):
+            suggestion_clicked = "Can you help me analyze and fix some code?"
+        if st.button("💡 Brainstorm ideas", use_container_width=True):
+            suggestion_clicked = "Let's brainstorm some innovative ideas for my upcoming project."
+    st.write("")
+    st.write("")
 
-# Display chat history
-chat_container = st.container()
+# Render existing conversation
+for msg in st.session_state.chat_history:
+    with st.chat_message(msg["role"]):
+        st.markdown(msg["content"])
 
-with chat_container:
-    for message in st.session_state.chat_history:
-        if message["role"] == "User":
-            with st.chat_message("user"):
-                st.markdown(message["content"])
-                if message.get("context"):
-                    with st.expander("📎 Attached Context"):
-                        st.text(message["context"][:500] + "..." if len(message["context"]) > 500 else message["context"])
-        else:
-            with st.chat_message("assistant"):
-                st.markdown(message["content"])
+# ─────────────────────────────────────────────
+# Bottom Floating Input Area
+# ─────────────────────────────────────────────
+# This container mimics a modern integrated input bar
+input_container = st.container()
 
-# File upload section ABOVE the chat input
-col1, col2 = st.columns([0.4, 0.7])
-
-with col1:
-    uploaded_files_input = st.file_uploader(
-        "📎",
-        type=['pdf', 'docx', 'txt'],
+with input_container:
+    # 1. File Uploading (Integrated above prompt)
+    uploaded_files = st.file_uploader(
+        "📎 Attach documents to conversation", 
+        type=["pdf", "docx", "txt", "png", "jpg", "jpeg", "webp"], 
         accept_multiple_files=True,
-        label_visibility="collapsed",
-        key="file_uploader"
+        label_visibility="collapsed"
     )
     
-    if uploaded_files_input:
-        st.session_state.temp_files = uploaded_files_input
+    # Process files if any
+    current_docs_context = ""
+    current_images = []
+    
+    if uploaded_files:
+        with st.spinner("Processing files..."):
+            for f in uploaded_files:
+                ext = f.name.rsplit(".", 1)[-1].lower()
+                if ext in ["png", "jpg", "jpeg", "webp"]:
+                    img = Image.open(f)
+                    if img.mode != 'RGB':
+                        img = img.convert('RGB')
+                    current_images.append(img)
+                else:
+                    content = extract_text_from_file(f.name, f.read())
+                    current_docs_context += f"\n--- Source: {f.name} ---\n{content}\n"
+                    
+        st.session_state.persistent_context = current_docs_context
+        st.session_state.persistent_images = current_images
+        
+        # Display small chips for feedback
+        for f in uploaded_files:
+            icon = "🖼️" if f.name.rsplit(".", 1)[-1].lower() in ["png", "jpg", "jpeg", "webp"] else "📄"
+            st.markdown(f'<div class="upload-chip">{icon} {f.name}</div>', unsafe_allow_html=True)
 
-with col2:
-    # Show uploaded files
-    if st.session_state.temp_files:
-        file_names = [f.name for f in st.session_state.temp_files]
-        st.info(f"📁 Files ready: {', '.join(file_names)}")
 
-# Chat input
-user_input = st.chat_input("🖥️:-Type your message here, paste a link, or upload files using 📎 button...")
+# ─────────────────────────────────────────────
+# Chat Input & Response
+# ─────────────────────────────────────────────
+user_input_from_chat = st.chat_input("Type your message, paste a URL, or ask about uploaded files…")
+user_input = user_input_from_chat or suggestion_clicked
 
 if user_input:
-    additional_context = ""
-    
-    # Check if input contains a URL
-    if is_url(user_input.strip()):
-        with st.spinner("🔍 Fetching website content..."):
-            website_content = scrape_website(user_input.strip())
-            additional_context += f"\n\nWebsite Content from {user_input}:\n{website_content}"
-            st.info(f"📄 Fetched content from: {user_input}")
-    
-    # Process uploaded files from the upload button
-    if st.session_state.temp_files:
-        with st.spinner("📄 Processing uploaded files..."):
-            for uploaded_file in st.session_state.temp_files:
-                file_content = process_uploaded_file(uploaded_file)
-                additional_context += f"\n\nFile: {uploaded_file.name}\n{file_content}\n"
-            st.info(f"📁 Processed {len(st.session_state.temp_files)} file(s)")
-    
-    # Add user message to history
-    add_to_history("User", user_input, additional_context)
-    
-    # Display user message
+    # ── Collect any extra context ──────────────
+    extra_context_parts = []
+
+    # Documents from bottom bar
+    if st.session_state.persistent_context:
+        extra_context_parts.append(st.session_state.persistent_context)
+
+    # URLs found in the user's message
+    urls = find_urls(user_input)
+    if urls:
+        with st.status("🌐 Fetching web content…", expanded=False) as web_status:
+            for url in urls:
+                st.write(f"Scraping `{url}`…")
+                content = scrape_website(url)
+                extra_context_parts.append(f"\n--- Web: {url} ---\n{content}\n")
+            web_status.update(label=f"✅ Scraped {len(urls)} URL(s)", state="complete")
+
+    # ── Display user message immediately ───────
     with st.chat_message("user"):
         st.markdown(user_input)
-        if additional_context:
-            with st.expander("📎 Attached Context"):
-                st.text(additional_context[:500] + "..." if len(additional_context) > 500 else additional_context)
-    
-    # Get and display agent response
-    with st.chat_message("assistant"):
-        with st.spinner("🤔 Thinking..."):
-            response = get_agent_response(user_input, additional_context)
-            st.markdown(response)
-    
-    # Add agent response to history
-    add_to_history("Assistant", response)
-    
-    # Clear temp files after processing
-    st.session_state.temp_files = []
-    
-    # Rerun to update chat display
-    st.rerun()
 
-# Footer
-st.markdown("---")
-st.caption("Built with Streamlit and API • Upload files using 📎 button or paste links to analyze content")
+    # ── Build the prompt ───────────────────────
+    full_prompt = user_input
+    if extra_context_parts:
+        context_block = "\n".join(extra_context_parts)
+        full_prompt = (
+            f"--- Context / Reference ---\n{context_block}\n"
+            f"--- User Question ---\n{user_input}"
+        )
+
+    # ── Format history for Gemini API ─────────
+    # Gemini expects alternating user/model turns
+    history_messages = []
+    for h in st.session_state.chat_history[-(AgentConfig.MAX_HISTORY * 2):]:
+        role = "user" if h["role"] == "user" else "model"
+        history_messages.append({"role": role, "parts": [h["content"]]})
+
+    current_prompt_parts = [full_prompt]
+    if st.session_state.persistent_images:
+        current_prompt_parts.extend(st.session_state.persistent_images)
+        
+    history_messages.append({"role": "user", "parts": current_prompt_parts})
+
+    # ── Save user turn BEFORE generating ──────
+    st.session_state.chat_history.append({"role": "user", "content": user_input})
+
+    # ── Stream the assistant response ─────────
+    with st.chat_message("assistant"):
+        try:
+            model = get_model(api_key, AgentConfig.LOCKED_MODEL)
+
+            with st.spinner("🤔 Thinking..."):
+                def token_stream():
+                    response = model.generate_content(history_messages, stream=True)
+                    for chunk in response:
+                        try:
+                            if chunk.text:
+                                yield chunk.text
+                        except Exception:
+                            pass
+
+                full_response = st.write_stream(token_stream)
+
+        except Exception as e:
+            full_response = f"❌ **Error:** {e}"
+            st.error(full_response)
+
+    # ── Save assistant turn ────────────────────
+    st.session_state.chat_history.append({"role": "assistant", "content": full_response})
