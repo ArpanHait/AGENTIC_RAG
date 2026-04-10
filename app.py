@@ -176,7 +176,7 @@ with st.sidebar:
             help="Get a free key at https://aistudio.google.com/app/apikey",
         )
     else:
-        st.success("✅ API Key loaded from environment")
+        st.success("✅ Successfully running..")
 
     st.info(f"🤖 **Model:** {AgentConfig.LOCKED_MODEL}")
 
@@ -197,17 +197,17 @@ with st.sidebar:
 - **Web links** — paste any URL in chat and the agent will scrape it
 - **Clear** — reset conversation above
 """)
-    st.caption("Built with Streamlit & Gemini API")
+    st.caption("Built with Streamlit & API")
 
 # ─────────────────────────────────────────────
 # Main Chat UI
 # ─────────────────────────────────────────────
 st.title("🤖 AI Conversational Agent")
-st.caption("Powered by Google Gemini · Upload Files · Paste Links")
+st.caption("· Upload Files · Upload Images · Paste Links")
 st.divider()
 
 if not api_key:
-    st.warning("⚠️ Enter your Google API Key in the sidebar to begin.")
+    st.warning("⚠️ Enter your google API Key in the sidebar to begin.")
     st.info("💡 Get a free key at [Google AI Studio](https://aistudio.google.com/app/apikey)")
     st.stop()
 
