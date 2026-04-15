@@ -4,7 +4,7 @@ A simple yet powerful conversational AI agent powered by Google API. Built with 
 
 ![Python](https://img.shields.io/badge/Python-3.8%2B-blue)
 ![Streamlit](https://img.shields.io/badge/Streamlit-1.31.0-red)
-![Google AI](https://img.shields.io/badge/Google-Gemini%202.5-yellow)
+![Google AI](https://img.shields.io/badge/Gemini-API-yellow)
 ![License](https://img.shields.io/badge/License-MIT-green)
 
 ## ✨ Features
@@ -21,9 +21,7 @@ A simple yet powerful conversational AI agent powered by Google API. Built with 
 👉 [Live Demo on Streamlit Cloud](https://ragagentic.streamlit.app/) 👈
 
 ## 📸 Interface:-
-
-![App Screenshot](IMAGE/preview.png)
-
+![Interface](IMAGE/interface.png)
 
 ## 🚀 Quick Start
 
