@@ -1,6 +1,6 @@
 # 🤖 AI Conversational Agent RAG
 
-A simple yet powerful conversational AI agent powered by Google Gemini 2.5 Flash. Built with Streamlit for an intuitive chat interface.
+A simple yet powerful conversational AI agent powered by Google API. Built with Streamlit for an intuitive chat interface.
 
 ![Python](https://img.shields.io/badge/Python-3.8%2B-blue)
 ![Streamlit](https://img.shields.io/badge/Streamlit-1.31.0-red)
@@ -75,7 +75,7 @@ A simple yet powerful conversational AI agent powered by Google Gemini 2.5 Flash
 ## 🛠️ Technology Stack
 
 - **Framework:** [Streamlit](https://streamlit.io/)
-- **AI Model:** Google Gemini 2.5 Flash Preview
+- **AI Model:** Google Gemini 3.1 Flash lite Preview
 - **Language:** Python 3.8+
 - **Dependencies:** 
   - `streamlit` - Web framework
@@ -102,7 +102,7 @@ AGENTIC_RAG/
 You can modify the model settings in `app.py`:
 ```python
 class AgentConfig:
-    GEMINI_MODEL = "gemini-2.5-flash-preview-09-2025"
+    GEMINI_MODEL = "Your_Prefered_model"
     MAX_HISTORY = 10  
 ```
 

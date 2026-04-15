@@ -202,19 +202,20 @@ with st.sidebar:
 # ─────────────────────────────────────────────
 # Main Chat UI
 # ─────────────────────────────────────────────
+
+
 st.title("🤖 AI Conversational Agent")
 st.caption("· Upload Files · Upload Images · Paste Links")
-st.divider()
 
 if not api_key:
-    st.warning("⚠️ Enter your google API Key in the sidebar to begin.")
-    st.info("💡 Get a free key at [Google AI Studio](https://aistudio.google.com/app/apikey)")
+    st.warning("⚠️ Enter your API Key in the sidebar to begin.")
+    st.info("💡SET MODELS ACCORDING TO YOUR API KEY!!")
     st.stop()
 
 # ── EMPTY STATE SUGGESTIONS ───────────────
 suggestion_clicked = None
 if len(st.session_state.chat_history) == 0:
-    st.markdown("### ✨ Welcome to your Intelligent Space")
+    st.markdown("### ⛓️‍💥 Welcome to your Intelligent Space")
     st.markdown("Get started by typing a message below, or explore the capabilities directly:")
     
     st.write("")
