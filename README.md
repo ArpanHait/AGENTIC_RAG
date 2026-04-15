@@ -21,9 +21,7 @@ A simple yet powerful conversational AI agent powered by Google API. Built with 
 👉 [Live Demo on Streamlit Cloud](https://ragagentic.streamlit.app/) 👈
 
 ## 📸 Interface:-
-
-![App Screenshot](IMAGE/preview.png)
-
+![Interface](IMAGE/interface.png)
 
 ## 🚀 Quick Start
 
