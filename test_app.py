@@ -114,6 +114,35 @@ class TestScrapeWebsite(unittest.TestCase):
         mock_get.assert_called_once()
 
     @patch('requests.get')
+    def test_scrape_html_cleaning(self, mock_get):
+        """Test that scrape_website correctly removes script, style, nav, footer, header tags, and normalizes whitespace."""
+        raw_html = (
+            b"<html>"
+            b"<head><style>body { color: red; }</style></head>"
+            b"<body>"
+            b"<header><h1>My Site Header</h1></header>"
+            b"<nav><a href='/'>Home</a></nav>"
+            b"<main>"
+            b"  <p>This is the   main content text.</p>"
+            b"  <script>console.log('test');</script>"
+            b"</main>"
+            b"<footer>Copyright 2026</footer>"
+            b"</body>"
+            b"</html>"
+        )
+        mock_response = MagicMock()
+        mock_response.content = raw_html
+        mock_response.raise_for_status.return_value = None
+        mock_get.return_value = mock_response
+
+        # Use a safe public URL unique to this test to bypass cache
+        result = app.scrape_website("https://example.com")
+        
+        # Expected cleaned output: Only the content inside main paragraph, with collapsed whitespace
+        self.assertEqual(result, "This is the main content text.")
+        mock_get.assert_called_once()
+
+    @patch('requests.get')
     def test_scrape_request_exception(self, mock_get):
         """Test scrape_website handling a RequestException."""
         import requests
