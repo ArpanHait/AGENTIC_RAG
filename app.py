@@ -8,6 +8,10 @@ import google.generativeai as genai
 import os
 from dotenv import load_dotenv
 import re
+import socket
+import ipaddress
+from urllib.parse import urlparse
+from concurrent.futures import ThreadPoolExecutor
 
 load_dotenv()
 import io
@@ -100,10 +104,41 @@ for k, v in defaults.items():
 # ─────────────────────────────────────────────
 # Cached Utility Functions (run once per input)
 # ─────────────────────────────────────────────
+def is_safe_url(url: str) -> bool:
+    """Validate if URL resolves to a safe public IP and uses HTTP/HTTPS."""
+    try:
+        parsed = urlparse(url)
+        if parsed.scheme not in ("http", "https"):
+            return False
+        hostname = parsed.hostname
+        if not hostname:
+            return False
+        
+        # Resolve hostname to IP address
+        ip_addresses = socket.getaddrinfo(hostname, None)
+        for sockaddr in ip_addresses:
+            ip_str = sockaddr[4][0]
+            ip = ipaddress.ip_address(ip_str)
+            if (
+                ip.is_private
+                or ip.is_loopback
+                or ip.is_link_local
+                or ip.is_reserved
+                or ip.is_multicast
+            ):
+                return False
+        return True
+    except Exception:
+        return False
+
+def get_file_extension(filename: str) -> str:
+    """Extract and lowercase the file extension."""
+    return filename.rsplit(".", 1)[-1].lower()
+
 @st.cache_data(show_spinner=False)
 def extract_text_from_file(file_name: str, file_bytes: bytes) -> str:
     """Extract text from PDF, DOCX, or TXT — cached per unique file."""
-    ext = file_name.rsplit(".", 1)[-1].lower()
+    ext = get_file_extension(file_name)
     try:
         if ext == "pdf":
             reader = pypdf.PdfReader(io.BytesIO(file_bytes))
@@ -122,6 +157,8 @@ def extract_text_from_file(file_name: str, file_bytes: bytes) -> str:
 @st.cache_data(show_spinner=False)
 def scrape_website(url: str) -> str:
     """Scrape and clean a webpage — cached per URL."""
+    if not is_safe_url(url):
+        return f"⚠️ SSRF Protection: Access to private or local network address ({url}) is blocked."
     try:
         headers = {"User-Agent": "Mozilla/5.0"}
         resp = requests.get(url, headers=headers, timeout=10)
@@ -259,13 +296,13 @@ with input_container:
     )
     
     # Process files if any
-    current_docs_context = ""
+    current_docs_context_parts = []
     current_images = []
     
     if uploaded_files:
         with st.spinner("Processing files..."):
             for f in uploaded_files:
-                ext = f.name.rsplit(".", 1)[-1].lower()
+                ext = get_file_extension(f.name)
                 if ext in ["png", "jpg", "jpeg", "webp"]:
                     img = Image.open(f)
                     if img.mode != 'RGB':
@@ -273,14 +310,14 @@ with input_container:
                     current_images.append(img)
                 else:
                     content = extract_text_from_file(f.name, f.read())
-                    current_docs_context += f"\n--- Source: {f.name} ---\n{content}\n"
+                    current_docs_context_parts.append(f"\n--- Source: {f.name} ---\n{content}\n")
                     
-        st.session_state.persistent_context = current_docs_context
+        st.session_state.persistent_context = "".join(current_docs_context_parts)
         st.session_state.persistent_images = current_images
         
         # Display small chips for feedback
         for f in uploaded_files:
-            icon = "🖼️" if f.name.rsplit(".", 1)[-1].lower() in ["png", "jpg", "jpeg", "webp"] else "📄"
+            icon = "🖼️" if get_file_extension(f.name) in ["png", "jpg", "jpeg", "webp"] else "📄"
             escaped_name = html.escape(f.name)
             st.markdown(f'<div class="upload-chip">{icon} {escaped_name}</div>', unsafe_allow_html=True)
 
@@ -306,8 +343,14 @@ if user_input:
         with st.status("🌐 Fetching web content…", expanded=False) as web_status:
             for url in urls:
                 st.write(f"Scraping `{url}`…")
-                content = scrape_website(url)
+            
+            # Scrape all URLs concurrently using ThreadPoolExecutor
+            with ThreadPoolExecutor() as executor:
+                results = list(executor.map(scrape_website, urls))
+                
+            for url, content in zip(urls, results):
                 extra_context_parts.append(f"\n--- Web: {url} ---\n{content}\n")
+                
             web_status.update(label=f"✅ Scraped {len(urls)} URL(s)", state="complete")
 
     # ── Display user message immediately ───────
@@ -351,8 +394,11 @@ if user_input:
                         try:
                             if chunk.text:
                                 yield chunk.text
-                        except Exception:
-                            pass
+                        except ValueError as ve:
+                            # Accessing chunk.text raises ValueError if the generation was blocked by safety settings
+                            yield f"\n\n⚠️ *[Generation blocked/incomplete: {ve}]*\n\n"
+                        except Exception as e:
+                            yield f"\n\n⚠️ *[Error streaming response: {e}]*\n\n"
 
                 full_response = st.write_stream(token_stream)
 
