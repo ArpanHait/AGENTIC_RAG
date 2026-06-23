@@ -6,19 +6,24 @@ Chat with Google Gemini | Upload Files | Scrape Web Links
 import streamlit as st
 import google.generativeai as genai
 import os
+from dotenv import load_dotenv
 import re
+
+load_dotenv()
 import io
+import html
 import requests
 from bs4 import BeautifulSoup
 import pypdf
 import docx
 from PIL import Image
 
+
 # ─────────────────────────────────────────────
 # Configuration
 # ─────────────────────────────────────────────
 class AgentConfig:
-    LOCKED_MODEL    = "gemini-3.1-flash-lite-preview" # Fixed as requested
+    LOCKED_MODEL    = "gemini-3.5-flash" # Fixed as requested
     MAX_HISTORY     = 12                              # Max conversation turns kept in context
     MAX_WEB_CHARS   = 8000                            # Max chars scraped from a website
     MAX_FILE_CHARS  = 20000                           # Max chars extracted from a document
@@ -121,7 +126,7 @@ def scrape_website(url: str) -> str:
         headers = {"User-Agent": "Mozilla/5.0"}
         resp = requests.get(url, headers=headers, timeout=10)
         resp.raise_for_status()
-        soup = BeautifulSoup(resp.content, "html.parser")
+        soup = BeautifulSoup(resp.content, "lxml")
         for tag in soup(["script", "style", "nav", "footer", "header"]):
             tag.decompose()
         text = re.sub(r"\s+", " ", soup.get_text(separator=" ")).strip()
@@ -276,7 +281,9 @@ with input_container:
         # Display small chips for feedback
         for f in uploaded_files:
             icon = "🖼️" if f.name.rsplit(".", 1)[-1].lower() in ["png", "jpg", "jpeg", "webp"] else "📄"
-            st.markdown(f'<div class="upload-chip">{icon} {f.name}</div>', unsafe_allow_html=True)
+            escaped_name = html.escape(f.name)
+            st.markdown(f'<div class="upload-chip">{icon} {escaped_name}</div>', unsafe_allow_html=True)
+
 
 
 # ─────────────────────────────────────────────
