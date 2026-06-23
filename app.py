@@ -27,7 +27,7 @@ from PIL import Image
 # Configuration
 # ─────────────────────────────────────────────
 class AgentConfig:
-    LOCKED_MODEL    = "gemini-3.5-flash" # Fixed as requested
+    LOCKED_MODEL    = "gemini-3.1-flash-lite" # Optimized stable model
     MAX_HISTORY     = 12                              # Max conversation turns kept in context
     MAX_WEB_CHARS   = 8000                            # Max chars scraped from a website
     MAX_FILE_CHARS  = 20000                           # Max chars extracted from a document
@@ -403,8 +403,20 @@ if user_input:
                 full_response = st.write_stream(token_stream)
 
         except Exception as e:
-            full_response = f"❌ **Error:** {e}"
-            st.error(full_response)
+            err_msg = str(e)
+            if "429" in err_msg or "quota" in err_msg.lower() or "resourceexhausted" in err_msg.lower():
+                full_response = (
+                    "⚠️ **API Quota Exceeded (Rate Limit Hit)**\n\n"
+                    "The Gemini API free tier has a strict limit of requests per minute (e.g., 5 requests/min for `gemini-3.5-flash`).\n\n"
+                    "**To resolve this:**\n"
+                    "1. Wait 10-15 seconds and try sending your message again.\n"
+                    "2. Switch to a model with a higher free-tier limit if possible (like `gemini-1.5-flash`).\n"
+                    "3. Set up billing in your [Google AI Studio](https://aistudio.google.com/) account to remove free-tier rate limits."
+                )
+                st.warning(full_response)
+            else:
+                full_response = f"❌ **Error:** {e}"
+                st.error(full_response)
 
     # ── Save assistant turn ────────────────────
     st.session_state.chat_history.append({"role": "assistant", "content": full_response})
