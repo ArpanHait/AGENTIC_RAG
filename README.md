@@ -28,7 +28,6 @@ A simple yet powerful conversational AI agent powered by Google API. Built with 
 ### Prerequisites
 
 - Python 3.8 or higher
-- Google API Key ([Get one free here](https://makersuite.google.com/app/apikey))
 
 ### Local Installation
 
@@ -48,14 +47,6 @@ A simple yet powerful conversational AI agent powered by Google API. Built with 
    streamlit run app.py
 ```
 
-## ☁️ Deploy to Streamlit Cloud
-
-1. **Fork this repository** or push to your GitHub
-
-2. **Go to [Streamlit Cloud](https://share.streamlit.io)**
-
-3. **Click "New app"**
-
 4. **Configure deployment:**
    - Repository: `ArpanHait/AGENTIC_RAG`
    - Branch: `main`
@@ -67,8 +58,6 @@ A simple yet powerful conversational AI agent powered by Google API. Built with 
 ```toml
      GOOGLE_API_KEY = "your-api-key-here"
 ```
-
-6. **Click Deploy!** 🚀
 
 ## 🛠️ Technology Stack
 
