@@ -27,7 +27,7 @@ from PIL import Image
 # Configuration
 # ─────────────────────────────────────────────
 class AgentConfig:
-    LOCKED_MODEL    = "gemini-3.1-flash-lite" # Optimized stable model
+    LOCKED_MODEL    = os.getenv("GEMINI_MODEL", "gemini-3.1-flash-lite") # Optimized multimodal model
     MAX_HISTORY     = 12                              # Max conversation turns kept in context
     MAX_WEB_CHARS   = 8000                            # Max chars scraped from a website
     MAX_FILE_CHARS  = 20000                           # Max chars extracted from a document
@@ -41,6 +41,13 @@ st.set_page_config(
     layout="centered",
     initial_sidebar_state="expanded"
 )
+
+# ─────────────────────────────────────────────
+# Health Check Route (for UptimeRobot & Status Monitors)
+# ─────────────────────────────────────────────
+if "health" in st.query_params or "healthz" in st.query_params or "ping" in st.query_params:
+    st.write("OK - Healthy")
+    st.stop()
 
 st.markdown("""
 <style>
@@ -134,6 +141,30 @@ def is_safe_url(url: str) -> bool:
 def get_file_extension(filename: str) -> str:
     """Extract and lowercase the file extension."""
     return filename.rsplit(".", 1)[-1].lower()
+
+def process_image_file(file_name: str, file_bytes: bytes) -> dict | None:
+    """Validate image bytes and return clean inline_data dict for Gemini API."""
+    ext = get_file_extension(file_name)
+    if ext not in ["png", "jpg", "jpeg", "webp"]:
+        return None
+    try:
+        img = Image.open(io.BytesIO(file_bytes))
+        out_buf = io.BytesIO()
+        if ext in ["jpg", "jpeg"]:
+            if img.mode in ("RGBA", "P"):
+                img = img.convert("RGB")
+            img.save(out_buf, format="JPEG", quality=90)
+            return {"mime_type": "image/jpeg", "data": out_buf.getvalue()}
+        elif ext == "png":
+            img.save(out_buf, format="PNG")
+            return {"mime_type": "image/png", "data": out_buf.getvalue()}
+        elif ext == "webp":
+            if img.mode in ("RGBA", "P"):
+                img = img.convert("RGB")
+            img.save(out_buf, format="WEBP", quality=90)
+            return {"mime_type": "image/webp", "data": out_buf.getvalue()}
+    except Exception:
+        return None
 
 @st.cache_data(show_spinner=False)
 def extract_text_from_file(file_name: str, file_bytes: bytes) -> str:
@@ -303,13 +334,14 @@ with input_container:
         with st.spinner("Processing files..."):
             for f in uploaded_files:
                 ext = get_file_extension(f.name)
+                f.seek(0)
+                file_bytes = f.read()
                 if ext in ["png", "jpg", "jpeg", "webp"]:
-                    img = Image.open(f)
-                    if img.mode != 'RGB':
-                        img = img.convert('RGB')
-                    current_images.append(img)
+                    img_dict = process_image_file(f.name, file_bytes)
+                    if img_dict:
+                        current_images.append(img_dict)
                 else:
-                    content = extract_text_from_file(f.name, f.read())
+                    content = extract_text_from_file(f.name, file_bytes)
                     current_docs_context_parts.append(f"\n--- Source: {f.name} ---\n{content}\n")
                     
         st.session_state.persistent_context = "".join(current_docs_context_parts)
@@ -320,6 +352,9 @@ with input_container:
             icon = "🖼️" if get_file_extension(f.name) in ["png", "jpg", "jpeg", "webp"] else "📄"
             escaped_name = html.escape(f.name)
             st.markdown(f'<div class="upload-chip">{icon} {escaped_name}</div>', unsafe_allow_html=True)
+    else:
+        st.session_state.persistent_context = ""
+        st.session_state.persistent_images = []
 
 
 
@@ -407,13 +442,20 @@ if user_input:
             if "429" in err_msg or "quota" in err_msg.lower() or "resourceexhausted" in err_msg.lower():
                 full_response = (
                     "⚠️ **API Quota Exceeded (Rate Limit Hit)**\n\n"
-                    "The Gemini API free tier has a strict limit of requests per minute (e.g., 5 requests/min for `gemini-3.5-flash`).\n\n"
+                    "The Gemini API free tier has a strict limit of requests per minute.\n\n"
                     "**To resolve this:**\n"
                     "1. Wait 10-15 seconds and try sending your message again.\n"
                     "2. Switch to a model with a higher free-tier limit if possible (like `gemini-1.5-flash`).\n"
                     "3. Set up billing in your [Google AI Studio](https://aistudio.google.com/) account to remove free-tier rate limits."
                 )
                 st.warning(full_response)
+            elif "400" in err_msg and "image" in err_msg.lower():
+                full_response = (
+                    "⚠️ **Image Processing Error**\n\n"
+                    "The model was unable to process the attached image. Please ensure the file is a standard "
+                    "PNG, JPEG, or WebP image and not corrupted, then try re-uploading."
+                )
+                st.error(full_response)
             else:
                 full_response = f"❌ **Error:** {e}"
                 st.error(full_response)

@@ -1,5 +1,7 @@
+import io
 import unittest
 from unittest.mock import patch, MagicMock
+from PIL import Image
 import app
 
 class TestExtractTextFromFile(unittest.TestCase):
@@ -39,11 +41,9 @@ class TestExtractTextFromFile(unittest.TestCase):
 
     def test_unsupported_format(self):
         """Test behavior when an unsupported file format is passed."""
-        # Test with an image extension (unsupported by this specific parser)
         result_png = app.extract_text_from_file("image.png", b"dummy_bytes")
         self.assertIn("⚠️ Unsupported format: png", result_png)
 
-        # Test with other unsupported document extensions
         result_csv = app.extract_text_from_file("data.csv", b"col1,col2\n1,2")
         self.assertIn("⚠️ Unsupported format: csv", result_csv)
 
@@ -55,6 +55,47 @@ class TestExtractTextFromFile(unittest.TestCase):
         with patch('pypdf.PdfReader', side_effect=Exception("Corrupt PDF file")):
             result = app.extract_text_from_file("corrupt.pdf", b"corrupt_bytes")
             self.assertIn("Error reading corrupt.pdf: Corrupt PDF file", result)
+
+class TestProcessImageFile(unittest.TestCase):
+    def test_valid_png_image(self):
+        """Test process_image_file with a valid PNG image."""
+        img = Image.new("RGBA", (40, 40), color="blue")
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        result = app.process_image_file("sample.png", buf.getvalue())
+        self.assertIsNotNone(result)
+        self.assertEqual(result["mime_type"], "image/png")
+        self.assertIsInstance(result["data"], bytes)
+        self.assertGreater(len(result["data"]), 0)
+
+    def test_valid_jpeg_image(self):
+        """Test process_image_file with a valid JPEG image and RGBA conversion."""
+        img = Image.new("RGBA", (40, 40), color="red")
+        buf = io.BytesIO()
+        img.save(buf, format="PNG") # Saved as PNG with RGBA mode
+        result = app.process_image_file("sample.jpg", buf.getvalue())
+        self.assertIsNotNone(result)
+        self.assertEqual(result["mime_type"], "image/jpeg")
+        self.assertIsInstance(result["data"], bytes)
+
+    def test_valid_webp_image(self):
+        """Test process_image_file with a valid WebP image."""
+        img = Image.new("RGB", (30, 30), color="green")
+        buf = io.BytesIO()
+        img.save(buf, format="WEBP")
+        result = app.process_image_file("sample.webp", buf.getvalue())
+        self.assertIsNotNone(result)
+        self.assertEqual(result["mime_type"], "image/webp")
+
+    def test_unsupported_image_extension(self):
+        """Test process_image_file with an unsupported extension."""
+        result = app.process_image_file("sample.gif", b"fake_gif_bytes")
+        self.assertIsNone(result)
+
+    def test_corrupt_image_bytes(self):
+        """Test process_image_file with corrupted image bytes."""
+        result = app.process_image_file("corrupt.png", b"not_an_image_binary_data")
+        self.assertIsNone(result)
 
 class TestFindUrls(unittest.TestCase):
     def test_no_urls(self):
@@ -80,8 +121,10 @@ class TestFindUrls(unittest.TestCase):
         self.assertEqual(app.find_urls(text), ["https://example.com", "https://test.org"])
 
 class TestIsSafeUrl(unittest.TestCase):
-    def test_safe_public_urls(self):
+    @patch('socket.getaddrinfo')
+    def test_safe_public_urls(self, mock_getaddrinfo):
         """Test is_safe_url with public URLs."""
+        mock_getaddrinfo.return_value = [(None, None, None, None, ('93.184.216.34', 0))]
         self.assertTrue(app.is_safe_url("https://google.com"))
         self.assertTrue(app.is_safe_url("http://example.com/some/path?param=value"))
 
@@ -100,21 +143,22 @@ class TestIsSafeUrl(unittest.TestCase):
         self.assertFalse(app.is_safe_url("not-a-url"))
 
 class TestScrapeWebsite(unittest.TestCase):
+    @patch('app.is_safe_url', return_value=True)
     @patch('requests.get')
-    def test_scrape_success(self, mock_get):
+    def test_scrape_success(self, mock_get, mock_safe):
         """Test scrape_website with a successful HTTP response."""
         mock_response = MagicMock()
         mock_response.content = b"<html><body><script>alert(1)</script><p>Hello World</p></body></html>"
         mock_response.raise_for_status.return_value = None
         mock_get.return_value = mock_response
 
-        # Use a safe public URL unique to this test
         result = app.scrape_website("https://success.com")
         self.assertEqual(result, "Hello World")
         mock_get.assert_called_once()
 
+    @patch('app.is_safe_url', return_value=True)
     @patch('requests.get')
-    def test_scrape_html_cleaning(self, mock_get):
+    def test_scrape_html_cleaning(self, mock_get, mock_safe):
         """Test that scrape_website correctly removes script, style, nav, footer, header tags, and normalizes whitespace."""
         raw_html = (
             b"<html>"
@@ -135,32 +179,29 @@ class TestScrapeWebsite(unittest.TestCase):
         mock_response.raise_for_status.return_value = None
         mock_get.return_value = mock_response
 
-        # Use a safe public URL unique to this test to bypass cache
         result = app.scrape_website("https://example.com")
-        
-        # Expected cleaned output: Only the content inside main paragraph, with collapsed whitespace
         self.assertEqual(result, "This is the main content text.")
         mock_get.assert_called_once()
 
+    @patch('app.is_safe_url', return_value=True)
     @patch('requests.get')
-    def test_scrape_request_exception(self, mock_get):
+    def test_scrape_request_exception(self, mock_get, mock_safe):
         """Test scrape_website handling a RequestException."""
         import requests
         mock_get.side_effect = requests.exceptions.RequestException("Connection error")
 
-        # Use a safe public URL unique to this test
         result = app.scrape_website("https://exception.com")
         self.assertIn("Error scraping https://exception.com: Connection error", result)
 
+    @patch('app.is_safe_url', return_value=True)
     @patch('requests.get')
-    def test_scrape_http_error(self, mock_get):
+    def test_scrape_http_error(self, mock_get, mock_safe):
         """Test scrape_website when raise_for_status raises an HTTPError."""
         import requests
         mock_response = MagicMock()
         mock_response.raise_for_status.side_effect = requests.exceptions.HTTPError("404 Client Error")
         mock_get.return_value = mock_response
 
-        # Use a safe public URL unique to this test
         result = app.scrape_website("https://httperror.com")
         self.assertIn("Error scraping https://httperror.com: 404 Client Error", result)
 
@@ -171,6 +212,7 @@ class TestScrapeWebsite(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
 
 
 
